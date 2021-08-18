@@ -142,11 +142,16 @@ def infer_fragments():
         #     "Infer fragments using: "
         #     "samtools view -h -f 3 -F 3852 -q 10 | grep -v -e 'XA:Z:' -e 'SA:Z:'"
         # )
+
+        if snakemake.params.get("with_read_id", False):
+            perl_script = """perl -ne 'chomp;@f=split " ";if($f[0] ne $f[3]){{next;}}$s=$f[1];$e=$f[5];if($f[8] eq "-"){{$s=$f[4];$e=$f[2];}}if($e>$s){{print "$f[0]\\t$s\\t$e\\t.\\t$f[7]\\t$f[8]\\n";}}' | """
+        else:
+            perl_script = """perl -ne 'chomp;@f=split " ";if($f[0] ne $f[3]){{next;}}$s=$f[1];$e=$f[5];if($f[8] eq "-"){{$s=$f[4];$e=$f[2];}}if($e>$s){{print "$f[0]\\t$s\\t$e\\t$f[6]\\t$f[7]\\t$f[8]\\n";}}' | """
+
         shell(
             "samtools view -h -f 3 -F 3852 {snakemake.input.bam} | "
             # "grep -v -e 'XA:Z:' -e 'SA:Z:' | "
-            "bamToBed -bedpe -mate1 -i stdin | "
-            """perl -ne 'chomp;@f=split " ";if($f[0] ne $f[3]){{next;}}$s=$f[1];$e=$f[5];if($f[8] eq "-"){{$s=$f[4];$e=$f[2];}}if($e>$s){{print "$f[0]\\t$s\\t$e\\t$f[7]\\t$f[8]\\t$f[6]\\n";}}' | """
+            f"bamToBed -bedpe -mate1 -i stdin | {perl_script}"
             "sort-bed --max-mem {mem_sortbed}M --tmpdir {tempdir} - | "
             "bgzip > {tempdir}/output.bed.gz"
         )
