@@ -5,7 +5,7 @@ import logging
 from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
 HTTP = HTTPRemoteProvider()
 
-
+localrules: ncbi_frag_GRCh37
 
 # Get the path to the companion Python script
 def python_script_path():
@@ -263,7 +263,7 @@ rule bam_sort:
         """
 
 
-rule cram_arhive:
+rule cram_archive:
     input: 
         ref=lambda wildcards: get_ref_genome(wildcards.ref_genome),
         bam="bam/{sample}.{ref_genome}.mdups.bam",
@@ -334,6 +334,51 @@ rule infer_fragments:
 
         mv $tmpdir/frag.bed.gz {output.frag}
         mv $tmpdir/frag.bed.gz.tbi {output.frag_idx}
+        """
+
+rule ncbi_frag_GRCh37:
+    input:
+        frag="frag/{sample}.hg19.frag.bed.gz",
+        frag_idx="frag/{sample}.hg19.frag.bed.gz.tbi",
+    output:
+        frag="frag/{sample}.GRCh37.frag.bed.gz",
+        frag_idx="frag/{sample}.GRCh37.frag.bed.gz.tbi",
+    params:
+        slurm_job_label=lambda wildcards: f"ncbi_frag_GRCh37.{wildcards.sample}",
+    shell:
+        """
+        mv {input.frag} {output.frag}
+        mv {input.frag_idx} {output.frag_idx}
+        """
+
+
+rule ncbi_frag_GRCh38:
+    input:
+        mapping="data/ref_genome/hg38/NCBI_mapping.tsv",
+        frag="frag/{sample}.hg38.frag.bed.gz",
+        frag_idx="frag/{sample}.hg38.frag.bed.gz.tbi",
+    output:
+        frag="frag/{sample}.GRCh38.frag.bed.gz",
+        frag_idx="frag/{sample}.GRCh38.frag.bed.gz.tbi",
+    params:
+        slurm_job_label=lambda wildcards: f"ncbi_frag_GRCh38.{wildcards.sample}",
+    shell:
+        """
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
+
+        tabix -H {input.frag} | bgzip > $tmpdir/output.frag.bed.gz
+        while read line
+        do
+            ncbi_chrom=`echo $line | awk '{{print $1}}'`
+            hg38_chrom=`echo $line | awk '{{print $2}}'`
+            tabix {input.frag} $hg38_chrom | bioawk -t -v chrom=$ncbi_chrom '{{$1=chrom;print}}'
+        done < {input.mapping} | bgzip >> $tmpdir/output.frag.bed.gz
+        tabix -p bed $tmpdir/output.frag.bed.gz
+
+        mv $tmpdir/output.frag.bed.gz {output.frag}.tmp
+        mv $tmpdir/output.frag.bed.gz.tbi {output.frag_idx}.tmp
+        mv {output.frag}.tmp {output.frag}
+        mv {output.frag_idx}.tmp {output.frag_idx}
         """
 
 
