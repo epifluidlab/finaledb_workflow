@@ -32,12 +32,29 @@ def eprint(*args, **kwargs):
     sys.stderr.write('\x1b[0m')
  
 # >>> Configuration >>>
-FULL_CORES = config.get("FULL_CORES", 16)
-PART_CORES = config.get("PART_CORES", 4)
-PART_CORES_S = PART_CORES
-PART_CORES_M = config.get("PART_CORES_M", 8)
-MEM_PER_CORE = config.get("MEM_PER_CORE", 1800)
-WALL_TIME_MAX = config.get("WALL_TIME_MAX", 2880)
+FULL_CORES = int(config.get("FULL_CORES", 16))
+PART_CORES_S = int(config.get("PART_CORES_M", 4))
+PART_CORES_M = int(config.get("PART_CORES_M", 8))
+
+MEM_PER_CORE = int(config.get("MEM_PER_CORE", 1800))
+WALL_TIME_MAX = int(config.get("WALL_TIME_MAX", 2880))
+WALL_TIME_MIN = int(config.get("WALL_TIME_MIN", 300))
+
+# number of cores for specific rules
+BWA_CORES = int(config.get("BWA_CORES", FULL_CORES))
+BWA_CORES_2 = int(config.get("BWA_CORES_2", BWA_CORES - 2))
+
+BAM_SORT_CORES = int(config.get("BAM_SORT_CORES", PART_CORES_M))
+BAM_SORT_CORES_2 = max(1, int(config.get("BAM_SORT_CORES_2", BAM_SORT_CORES - 1)))
+
+CRAM_CORES = int(config.get("CRAM_CORES", PART_CORES_S))
+
+INFER_FRAG_CORES = int(config.get("INFER_FRAG_CORES", PART_CORES_M))
+INFER_FRAG_SORTBED_CORES = max(1, int(config.get("INFER_FRAG_SORTBED_CORES", INFER_FRAG_CORES - 3)))
+
+WITH_CIGAR = bool(config.get("WITH_CIGAR", 0))
+WITH_READ_ID =  bool(config.get("WITH_READ_ID", 0))
+
 
 # Default base directory for data files. Default: ./data
 DATA_DIR = config.get("DATA_DIR", os.path.abspath("data"))
@@ -56,9 +73,9 @@ main_script = python_script_path()
 
 def get_ref_genome(ref_genome):
     ref_map = {
-        "hg19": [os.path.normpath(v) for v in expand(f"{REF_GENOME_DIR}/hg19/human_g1k_v37.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".gzi", ".pac", ".sa"])],
-        "hg38": [os.path.normpath(v) for v in expand(f"{REF_GENOME_DIR}/hg38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".gzi", ".pac", ".sa"])],
-        "hg19_mm10": [os.path.normpath(v) for v in expand(f"{REF_GENOME_DIR}/hg19_mm10/human_g1k_v37_mm10.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".pac", ".sa"])],
+        "hg19": [os.path.normpath(v) for v in expand(f"{REF_GENOME_DIR}/hg19/human_g1k_v37.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".pac", ".sa", ".gzi"])],
+        "hg38": [os.path.normpath(v) for v in expand(f"{REF_GENOME_DIR}/hg38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".pac", ".sa", ".gzi"])],
+        "hg19_mm10": [os.path.normpath(v) for v in expand(f"{REF_GENOME_DIR}/hg19_mm10/human_g1k_v37_mm10.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".pac", ".sa", ".gzi"])],
     }
     return ref_map[ref_genome]
 
@@ -117,7 +134,7 @@ rule fastqc:
     output: expand("fastqc/{{sample}}.R{rg}_fastqc.{ext}", rg=[1, 2], ext=["html", "zip"])
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"fastqc.{wildcards.sample}",
+        slurm_job_label=lambda wildcards: f"fastqc.{wildcards.sample}",
     threads: 2
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
@@ -137,13 +154,13 @@ rule trimmomatic:
     log: "trimmomatic/{sample}.trimmomatic.summary.txt",
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"trimmomatic.{wildcards.sample}",
+        slurm_job_label=lambda wildcards: f"trimmomatic.{wildcards.sample}",
         trimmer=lambda wildcards: config.get("TRIMMER", "ILLUMINACLIP:{0}:2:30:10:2:keepBothReads TRAILING:5 AVGQUAL:20 MINLEN:36"),
-    threads: PART_CORES
+    threads: PART_CORES_M
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     conda: "conda/conda.trimmomatic.yaml"
     wrapper: workflow_path("trimmomatic/pe")
@@ -157,14 +174,14 @@ rule cutadapt:
     log: "cutadapt/{sample}.cutadapt.summary.txt",
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"cutadapt.{wildcards.sample}",
+        slurm_job_label=lambda wildcards: f"cutadapt.{wildcards.sample}",
         adapters="-a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
         extra=lambda wildcards: config.get("CUTADAPT", "--minimum-length=36"),
-    threads: PART_CORES
+    threads: PART_CORES_M
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     wrapper: "file:///jet/home/haizizh/dev/snakemake-wrappers/bio/finaledb/cutadapt/pe"
 
@@ -175,7 +192,7 @@ rule fastqc_post_trim:
     output: expand("fastqc_trim/{{sample}}.R{rg}.paired_fastqc.{ext}", rg=[1, 2], ext=["html", "zip"])
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"fastqc_trim.{wildcards.sample}",
+        slurm_job_label=lambda wildcards: f"fastqc_trim.{wildcards.sample}",
     threads: 2
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
@@ -193,21 +210,86 @@ rule bwa_raw:
         fastq=expand("trimmomatic/{{sample}}.R{rg}.paired.fq.gz", rg=[1, 2]),
         # fastq=expand("cutadapt/{{sample}}.R{rg}.paired.fq.gz", rg=[1, 2]),
     output: 
-        bam="temp/{sample}.{ref_genome,[^\\.]+}.raw.bam",
+        bam=temp("temp/{sample}.{ref_genome,[^\\.]+}.raw.bam"),
     log:
         log="bam/{sample}.{ref_genome}.samblaster.log",
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"bwa_raw.{wildcards.sample}.{wildcards.ref_genome}",
-        extra=lambda wildcards: f"-R '@RG\\tID:{BWA_RG_ID or (wildcards.sample + str(BWA_RG_ID_SUFFIX))}\\tSM:{wildcards.sample}\\tPL:ILLUMINA'"
-    threads: lambda wildcards, attempt: int(FULL_CORES * (0.5 + 0.5 * attempt))
+        slurm_job_label=lambda wildcards: f"bwa_raw.{wildcards.sample}.{wildcards.ref_genome}",
+        extra=lambda wildcards: f"-R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:ILLUMINA'"
+    threads: lambda wildcards, attempt: int(BWA_CORES * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     conda: "conda/conda.bwa.yaml"
-    wrapper: workflow_path("bwa/mem-samblaster")
+    shell:
+        """
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
+        
+        bwa mem -t {BWA_CORES_2} {params.extra} {input.ref[0]} {input.fastq} | \\
+        samblaster 2> >(tee {log} >&2) | samtools view -u -o $tmpdir/output.bam -
+        mv $tmpdir/output.bam {output}
+        """
+
+
+# Sort the BAM file with duplicates marked
+rule bam_sort:
+    input: 
+        bam="temp/{sample}.{ref_genome}.raw.bam",
+    output:
+        bam=temp("bam/{sample}.{ref_genome,[^\\.]+}.mdups.bam"),
+        bai=temp("bam/{sample}.{ref_genome}.mdups.bam.bai"),
+    params:
+        k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
+        slurm_job_label=lambda wildcards: f"bam_sort.{wildcards.sample}.{wildcards.ref_genome}",
+        sort_mem=lambda wildcards: int(MEM_PER_CORE * 0.8),
+    threads: lambda wildcards, attempt: int(BAM_SORT_CORES * (0.5 + 0.5 * attempt))
+    resources:
+        mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
+        time=WALL_TIME_MAX,
+        time_min=WALL_TIME_MIN,
+        attempt=lambda wildcards, threads, attempt: attempt
+    conda: "conda/conda.bwa.yaml"
+    shell:
+        """
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
+
+        samtools sort -@ {BAM_SORT_CORES_2} -m {params.sort_mem}M -T $tmpdir -u -o $tmpdir/output.bam {input.bam}
+        samtools index -@ {threads} $tmpdir/output.bam
+        mv $tmpdir/output.bam {output.bam}
+        mv $tmpdir/output.bam.bai {output.bai}
+        """
+
+
+rule cram_arhive:
+    input: 
+        ref=lambda wildcards: get_ref_genome(wildcards.ref_genome),
+        bam="bam/{sample}.{ref_genome}.mdups.bam",
+    output: 
+        cram="bam/{sample}.{ref_genome,[^\\.]+}.mdups.cram",
+        crai="bam/{sample}.{ref_genome}.mdups.cram.crai",
+    params:
+        k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
+        slurm_job_label=lambda wildcards: f"cram_archive.{wildcards.sample}.{wildcards.ref_genome}",
+    threads: CRAM_CORES
+    resources:
+        mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
+        time=WALL_TIME_MAX,
+        time_min=WALL_TIME_MIN,
+        attempt=lambda wildcards, threads, attempt: attempt
+    conda: "conda/conda.bwa.yaml"
+    shell:
+        """
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
+
+        samtools view -@ {threads} -T {input.ref[0]} -C -o $tmpdir/output.cram {input.bam}
+        samtools index $tmpdir/output.cram
+
+        mv $tmpdir/output.cram {output.cram}
+        mv $tmpdir/output.cram.crai {output.crai}
+        """
 
 
 # Infer fragments from query-grouped BAM files
@@ -216,43 +298,43 @@ rule infer_fragments:
         bam="temp/{sample}.{ref_genome}.raw.bam",
         sorted_bam="bam/{sample}.{ref_genome}.mdups.bam",
         sorted_bai="bam/{sample}.{ref_genome}.mdups.bam.bai",
-        chrom_sizes=lambda wildcards: get_chrom_sizes(wildcards.ref_genome),
+        # chrom_sizes=lambda wildcards: get_chrom_sizes(wildcards.ref_genome),
     output:
         frag="frag/{sample}.{ref_genome,[^\\.]+}.frag.bed.gz",
         frag_idx="frag/{sample}.{ref_genome}.frag.bed.gz.tbi",
     log: "frag/{sample}.{ref_genome,[^\\.]+}.log",
-    threads: lambda wildcards, attempt: int(PART_CORES * (0.5 + 0.5 * attempt))
+    threads: lambda wildcards, attempt: int(INFER_FRAG_CORES * (0.5 + 0.5 * attempt))
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"infer_fragments.{wildcards.sample}.{wildcards.ref_genome}",
-        with_read_id=lambda wildcards: config.get("WITH_READ_ID", "false"),
-        with_cigar=lambda wildcards: config.get("WITH_CIGAR", "false"),
+        slurm_job_label=lambda wildcards: f"infer_fragments.{wildcards.sample}.{wildcards.ref_genome}",
+        sortbed_mem=lambda wildcards, threads, resources: max(1000, int((resources.mem_mb - 2000) * INFER_FRAG_SORTBED_CORES / threads * 0.8)),
+        annotate_cmd=lambda wildcards, input: f"annotate_frag.py --bam {input.sorted_bam} | " if WITH_CIGAR else "",
+        remove_read_id_cmd=lambda wildcards: "" if WITH_READ_ID else "bioawk -t '{$4=\".\";print}' | ",
+        head_print=lambda wildcards: '"#chrom", "start", "end", "name", "mapq", "strand"',
+        head_print2=lambda wildcards: ', "cigar1", "cigar2"' if WITH_CIGAR else "",
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MAX,
         attempt=lambda wildcards, threads, attempt: attempt
-    wrapper: workflow_path("finaledb/frag")# "file:///jet/home/haizizh/dev/snakemake-wrappers/bio/finaledb/frag"
+    # wrapper: workflow_path("finaledb/frag")# "file:///jet/home/haizizh/dev/snakemake-wrappers/bio/finaledb/frag"
+    shell:
+        """
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
+        echo '' | bioawk -t '{{print {params.head_print}{params.head_print2}}}' | bgzip > $tmpdir/frag.bed.gz
+        
+        samtools view -h -f 3 -F 3852 -G 48 --incl-flags 48 {input.bam} | \\
+        bamToBed -bedpe -mate1 -i stdin | \\
+        bioawk -t '{{if ($1!=$4) next; if ($9=="+") {{s=$2;e=$6}} else {{s=$5;e=$3}} if (e>s) print $1,s,e,$7,$8,$9}}' | \\
+        sort -k1,1V -k2,2n --parallel {INFER_FRAG_SORTBED_CORES} -S {params.sortbed_mem}M -T $tmpdir | \\
+        {params.annotate_cmd} {params.remove_read_id_cmd} bgzip >> $tmpdir/frag.bed.gz
 
-# Sort the BAM file with duplicates marked
-rule bam_sort:
-    input: 
-        bam="temp/{sample}.{ref_genome}.raw.bam",
-    output:
-        bam="bam/{sample}.{ref_genome,[^\\.]+}.mdups.bam",
-        bai="bam/{sample}.{ref_genome}.mdups.bam.bai",
-    params:
-        k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"bam_sort.{wildcards.sample}.{wildcards.ref_genome}",
-    threads: lambda wildcards, attempt: int(PART_CORES * (0.5 + 0.5 * attempt))
-    resources:
-        mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
-        time=WALL_TIME_MAX,
-        time_min=240,
-        attempt=lambda wildcards, threads, attempt: attempt
-    conda: "conda/conda.bwa.yaml"
-    script: main_script
+        tabix -p bed $tmpdir/frag.bed.gz
+
+        mv $tmpdir/frag.bed.gz {output.frag}
+        mv $tmpdir/frag.bed.gz.tbi {output.frag_idx}
+        """
 
 
 rule bam_stats:
@@ -265,12 +347,12 @@ rule bam_stats:
         flagstats="bam_stats/{sample}.{ref_genome}.flagstats.txt",
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"bam_stats.{wildcards.sample}.{wildcards.ref_genome}",
+        slurm_job_label=lambda wildcards: f"bam_stats.{wildcards.sample}.{wildcards.ref_genome}",
     threads: 2
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=240,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     conda: "conda/conda.bwa.yaml"
     script: main_script
@@ -286,12 +368,12 @@ rule picard_metrics_insert_size:
         insert_size_log="picard_metrics/insert_size/{sample}.{ref_genome}.insert_size.log"
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"picard.insert_size.{wildcards.sample}.{wildcards.ref_genome}",
+        slurm_job_label=lambda wildcards: f"picard.insert_size.{wildcards.sample}.{wildcards.ref_genome}",
     threads: 2
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     conda: "conda/conda.gatk.yaml"
     script: main_script
@@ -309,12 +391,12 @@ rule picard_gc_bias:
         gc_bias_log="picard_metrics/gc_bias/{sample}.{ref_genome}.gc_bias.log",
     params:
         k8s_node_selector={"diskvol": "8x", "ec2": "4x"},
-        label=lambda wildcards: f"picard.gc_bias.{wildcards.sample}.{wildcards.ref_genome}",
-    threads: PART_CORES
+        slurm_job_label=lambda wildcards: f"picard.gc_bias.{wildcards.sample}.{wildcards.ref_genome}",
+    threads: PART_CORES_M
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     conda: "conda/conda.gatk.yaml"
     script: main_script
@@ -334,7 +416,7 @@ rule picard_gc_bias:
 #         time_min=lambda wildcards, input: round(nlogn(os.path.getsize(input.sam) / 3) * 10 + 45),
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.sam) / 1024**2)
 #     params:
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared",
 #         xmx_mb=lambda wildcards, threads: threads * 4000 - 768
 #     shell:
@@ -373,7 +455,7 @@ rule picard_gc_bias:
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.sam) / 1024**2)
 #     params:
 #         xmx_mb=lambda wildcards, threads: threads * 4000 - 768,
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
@@ -520,7 +602,7 @@ rule picard_gc_bias:
 # #         time_min=lambda wildcards, input, threads: round(nlogn(os.path.getsize(input[0])) * 8 + 15),
 # #         input_size=lambda wildcards, input: round(os.path.getsize(input[0]) / 1024**2)
 # #     params:
-# #         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.read_name}.{wildcards.chunk_size}-{wildcards.chunk_id}",
+# #         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.read_name}.{wildcards.chunk_size}-{wildcards.chunk_id}",
 # #         partition="RM-shared"
 # #     shell:
 # #         """
@@ -582,7 +664,7 @@ rule picard_gc_bias:
 # #         input_size=lambda wildcards, input: round(os.path.getsize(input.fastq[0]) / 1024**2)
 # #     params:
 # #         cores_bwa=lambda wildcards, threads, resources: threads,
-# #         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}.{wildcards.chunk_size}-{wildcards.chunk_id}",
+# #         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}.{wildcards.chunk_size}-{wildcards.chunk_id}",
 # #         partition="RM"
 # #     shell:
 # #         """
@@ -638,7 +720,7 @@ rule picard_gc_bias:
 # #     output:
 # #         bam=temp("temp/bwa_dc/{entry_id,EE[0-9]+}.{assembly,[a-zA-Z1-9]+}.raw.bam")
 # #     params:
-# #         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+# #         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 # #         partition="RM-shared"
 # #     shell:
 # #         """
@@ -711,7 +793,7 @@ rule picard_gc_bias:
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.bam) / 1024**2)
 #     params:
 #         mem_mb_per_thread=lambda wildcards, threads, resources: int(resources.mem_mb * 0.8 / threads),
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
@@ -791,7 +873,7 @@ rule picard_gc_bias:
 #         mem_mb_per_thread=lambda wildcards, threads, resources: int((resources.mem_mb - 1000) * 0.8 / threads),
 #         mem_mb_sortbed=lambda wildcards, threads, resources: int((resources.mem_mb - 2000) * 0.4),
 #         sort_threads=lambda wildcards, threads, resources: resources.cpus - 1,
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
@@ -829,7 +911,7 @@ rule picard_gc_bias:
 #         cpus=lambda wildcards, threads: threads,
 #         mem_mb=lambda wildcards, threads: threads * 4000
 #     params:
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
@@ -852,7 +934,7 @@ rule picard_gc_bias:
 #         time_min=lambda wildcards, input: math.ceil(os.path.getsize(input.bam) / 1024**3) * 10 + 45,
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.bam) / 1024**2)
 #     params:
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
@@ -883,7 +965,7 @@ rule picard_gc_bias:
 #         time_min=lambda wildcards, input: math.ceil(os.path.getsize(input.sam) / 3 / 1024**3) * 10 + 45,
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.sam) / 1024**2)
 #     params:
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared",
 #         xmx_mb=lambda wildcards, threads: threads * 4000 - 768,
 #     shell:
@@ -919,7 +1001,7 @@ rule picard_gc_bias:
 #         time_min=lambda wildcards, input: round(nlogn(os.path.getsize(input.sam) / 3) * 10 + 45),
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.sam) / 1024**2)
 #     params:
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared",
 #         xmx_mb=lambda wildcards, threads: threads * 4000 - 768
 #     shell:
@@ -958,7 +1040,7 @@ rule picard_gc_bias:
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.sam) / 1024**2)
 #     params:
 #         xmx_mb=lambda wildcards, threads: threads * 4000 - 768,
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
@@ -1002,7 +1084,7 @@ rule picard_gc_bias:
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.frag) / 1024**2)
 #     params:
 #         mem_mb_sortbed=lambda wildcards, threads, resources: int((resources.mem_mb - 2000) * 0.5),
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
@@ -1117,7 +1199,7 @@ rule picard_gc_bias:
 #         input_size=lambda wildcards, input: round(os.path.getsize(input.frag) / 1024**2)
 #     params:
 #         mem_mb_sortbed=lambda wildcards, threads, resources: int((resources.mem_mb - 2000) * 0.5),
-#         label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
+#         slurm_job_label=lambda wildcards: f"{wildcards.entry_id}.{wildcards.assembly}",
 #         partition="RM-shared"
 #     shell:
 #         """
