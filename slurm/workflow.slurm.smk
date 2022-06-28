@@ -360,6 +360,7 @@ rule ncbi_frag_GRCh38:
     output:
         frag="frag/{sample}.GRCh38.frag.bed.gz",
         frag_idx="frag/{sample}.GRCh38.frag.bed.gz.tbi",
+    threads: 2
     params:
         slurm_job_label=lambda wildcards: f"ncbi_frag_GRCh38.{wildcards.sample}",
     shell:
