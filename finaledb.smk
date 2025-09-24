@@ -2,8 +2,9 @@ import os
 import math
 import logging
 
-from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
-HTTP = HTTPRemoteProvider()
+# Snakemake 8 and onwards: "Remote providers have been replaced by Snakemake storage plugins. Please use the corresponding storage plugin instead (snakemake-storage-plugin-*)."
+# from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
+# HTTP = HTTPRemoteProvider()
 
 
 def eprint(*args, **kwargs):
@@ -56,6 +57,7 @@ rule trimmomatic:
     input: 
         fastq=expand("fastq/{{sample}}.{read_name}.fastq.gz", read_name=["R1", "R2"]),
         adapter="raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa",
+       # adapter="supplementary/TruSeq3-PE-2.fa" # Download from https://raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa"
     output:
         trim=expand("trimmomatic/{{sample}}.R{rg}.{pairing}.fastq.gz", rg=[1, 2], pairing=["paired", "unpaired"]),
     log: "trimmomatic/{sample}.trimmomatic.summary.txt",
