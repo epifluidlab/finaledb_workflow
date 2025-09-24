@@ -55,7 +55,7 @@ def get_ref_genome_sizes(ref_genome):
 rule trimmomatic:
     input: 
         fastq=expand("fastq/{{sample}}.{read_name}.fastq.gz", read_name=["R1", "R2"]),
-        adapter=HTTP.remote("https://raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa"),
+        adapter="raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa",
     output:
         trim=expand("trimmomatic/{{sample}}.R{rg}.{pairing}.fastq.gz", rg=[1, 2], pairing=["paired", "unpaired"]),
     log: "trimmomatic/{sample}.trimmomatic.summary.txt",
@@ -96,7 +96,7 @@ rule bwa_raw:
         log="bam/{sample}.{ref_genome}.samblaster.log",
     params:
         slurm_job_label=lambda wildcards: f"bwa_raw.{wildcards.sample}.{wildcards.ref_genome}",
-        extra=lambda wildcards: f"-R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
+        extra=lambda wildcards: f"-I 167,1000,0,1000 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
     threads: lambda wildcards, attempt: int(BWA_CORES * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
@@ -194,8 +194,8 @@ rule infer_fragments:
 
         echo '' | awk -F'\\t' -v OFS='\\t' '{{print {params.head_print}{params.head_print2}}}' | bgzip > $tmpdir/frag.bed.gz
         
-        samtools view -h -f 3 -F 3852 -G 48 --incl-flags 48 {input.bam} | \\
-        bamToBed -bedpe -mate1 -i stdin | \\
+        samtools view -bh -f 3 -F 3852 -G 48 {input.bam} | \\
+        bedtools bamtobed -bedpe -mate1 -i stdin | \\
         awk -F'\\t' -v OFS='\\t' '{{if ($1!=$4) next; if ($9=="+") {{s=$2;e=$6}} else {{s=$5;e=$3}} if (e>s) print $1,s,e,$7,$8,$9}}' | \\
         sort -k1,1V -k2,2n --parallel {INFER_FRAG_SORTBED_CORES} -S {params.sortbed_mem}M -T $tmpdir | \\
         {params.annotate_cmd} {params.remove_read_id_cmd} bgzip >> $tmpdir/frag.bed.gz
