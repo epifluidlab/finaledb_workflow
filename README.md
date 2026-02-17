@@ -1,6 +1,24 @@
 # Snakemake workflows for FinaleDB
 
-Snakemake supports running workflows in a number of computing environments, such as local, Kubernetes, SLURM clusters, to name a few. Our workflow are tailored for both Kubernetes and SLURM.
+Snakemake supports running workflows in a number of computing environments, such as local, Kubernetes, SLURM clusters, to name a few. Our workflow is tailored for SLURM.
+
+## Setting up Conda environment
+### 1. Create the Snakemake environment:
+```{bash}
+conda env create -f environment.yaml
+# or, if using mamba:
+mamba env create -f environment.yaml
+```
+### 2. Activate the environment:
+```{bash}
+conda activate snakemake
+```
+
+### 3. Install per-rule dependencies
+On first run, Snakemake will automatically create conda environments for each rule. You can pre-install them without running the workflow with:
+```{bash}
+snakemake --use-conda --conda-create-envs-only
+```
 
 ## Work with SLURM batch system
 
