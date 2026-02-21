@@ -65,6 +65,7 @@ rule trimmomatic:
         slurm_job_label=lambda wildcards: f"trimmomatic.{wildcards.sample}",
         trimmer=lambda wildcards, input: config.get("TRIMMER", TRIMMOMATIC_HEAD + f" ILLUMINACLIP:{input.adapter}:2:30:10:2:true TRAILING:5 AVGQUAL:20 MINLEN:36 ") + TRIMMOMATIC_EXTRA,
     threads: lambda wildcards, attempt: int(TRIMMOMATIC_CORES * (0.5 + attempt * 0.5))
+    conda: "envs/trimmomatic.yaml"
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -100,6 +101,7 @@ rule bwa_raw:
         slurm_job_label=lambda wildcards: f"bwa_raw.{wildcards.sample}.{wildcards.ref_genome}",
         extra=lambda wildcards: f"-I 167,1000,0,1000 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
     threads: lambda wildcards, attempt: int(BWA_CORES * (0.5 + 0.5 * attempt))
+    conda: "envs/bwa.yaml"
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -125,6 +127,7 @@ rule bam_sort:
         slurm_job_label=lambda wildcards: f"bam_sort.{wildcards.sample}.{wildcards.ref_genome}",
         sort_mem=lambda wildcards: int(MEM_PER_CORE * 0.8),
     threads: lambda wildcards, attempt: int(BAM_SORT_CORES * (0.5 + 0.5 * attempt))
+    conda: "envs/samtools.yaml"
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -152,6 +155,7 @@ rule cram_archive:
     params:
         slurm_job_label=lambda wildcards: f"cram_archive.{wildcards.sample}.{wildcards.ref_genome}",
     threads: lambda wildcards, attempt: int(CRAM_CORES * (0.5 + 0.5 * attempt))
+    conda: "envs/samtools.yaml"
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -186,6 +190,7 @@ rule infer_fragments:
         remove_read_id_cmd=lambda wildcards: "" if WITH_READ_ID else "awk -F'\\t' -v OFS='\\t' '{$4=\".\";print}' | ",
         head_print=lambda wildcards: '"#chrom", "start", "end", "name", "mapq", "strand"',
         head_print2=lambda wildcards: ', "cigar1", "cigar2"' if WITH_CIGAR else "",
+    conda: "envs/infer_fragments.yaml"
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
