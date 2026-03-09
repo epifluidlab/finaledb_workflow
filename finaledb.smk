@@ -101,7 +101,7 @@ rule bwa_raw:
         log="bam/{sample}.{ref_genome}.samblaster.log",
     params:
         slurm_job_label=lambda wildcards: f"bwa_raw.{wildcards.sample}.{wildcards.ref_genome}",
-        extra=lambda wildcards: f"-I 167,1000,0,1000 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
+        extra=lambda wildcards: f"-I 167,1000,1000,50 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
     threads: lambda wildcards, attempt: int(BWA_CORES * (0.5 + 0.5 * attempt))
     conda: "envs/bwa.yaml",
     resources:
