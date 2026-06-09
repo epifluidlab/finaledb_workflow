@@ -1,0 +1,8 @@
+__default__:
+    account: # account
+    partition: # partition
+    mail-user: # your_email_for_notifications@email.com
+    mail-type: FAIL
+    output: #output.log
+    nodes: 1
+    constraint: EGRESS

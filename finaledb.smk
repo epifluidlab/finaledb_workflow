@@ -18,14 +18,14 @@ def eprint(*args, **kwargs):
 MEM_PER_CORE = int(config.get("MEM_PER_CORE", 3700))
 
 TRIMMOMATIC_CORES = int(config.get("TRIMMOMATIC_CORES", 8))
-BWA_CORES = int(config.get("BWA_CORES", 16))
+BWA_CORES = int(config.get("BWA_CORES", 64))
 BAM_SORT_CORES = int(config.get("BAM_SORT_CORES", 8))
 CRAM_CORES = int(config.get("CRAM_CORES", 4))
-INFER_FRAG_CORES = int(config.get("INFER_FRAG_CORES", 8))
+INFER_FRAG_CORES = int(config.get("INFER_FRAG_CORES", 32))
 INFER_FRAG_SORTBED_CORES = max(1, int(config.get("INFER_FRAG_SORTBED_CORES", INFER_FRAG_CORES - 3)))
 
 WALL_TIME_MAX = int(config.get("WALL_TIME_MAX", 2880))
-WALL_TIME_MIN = int(config.get("WALL_TIME_MIN", 300))
+WALL_TIME_MIN = int(config.get("WALL_TIME_MIN", 360))
 
 WITH_CIGAR = bool(config.get("WITH_CIGAR", 0))
 WITH_READ_ID =  bool(config.get("WITH_READ_ID", 0))
@@ -101,7 +101,7 @@ rule bwa_raw:
         log="bam/{sample}.{ref_genome}.samblaster.log",
     params:
         slurm_job_label=lambda wildcards: f"bwa_raw.{wildcards.sample}.{wildcards.ref_genome}",
-        extra=lambda wildcards: f"-I 167,1000,1000,50 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
+        extra=lambda wildcards: f"-I 167,1000,1000,0 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
     threads: lambda wildcards, attempt: int(BWA_CORES * (0.5 + 0.5 * attempt))
     conda: "envs/bwa.yaml",
     resources:

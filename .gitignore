@@ -1,0 +1,3 @@
+snakemake_profiles/finaledb_quest/*
+*.pyc
+*.log

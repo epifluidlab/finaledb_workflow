@@ -1,7 +1,0 @@
-channels:
-  - bioconda
-  - conda-forge
-dependencies:
-  - bwa==0.7.17
-  - samtools==1.14
-  - samblaster==0.1.26

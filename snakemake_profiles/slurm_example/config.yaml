@@ -1,0 +1,14 @@
+restart-times: 0
+keep-going: true
+jobscript: "slurm-jobscript.sh"
+use-conda: true
+executor: slurm
+default-resources:
+  slurm_account: # account
+  slurm_partition: # partition
+  runtime: 86400
+  mem_mb: 32000
+max-jobs-per-second: 1
+max-status-checks-per-second: 10
+local-cores: 8
+latency-wait: 360
