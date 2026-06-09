@@ -15,17 +15,17 @@ def eprint(*args, **kwargs):
     sys.stderr.write('\x1b[0m')
  
 # >>> Configuration >>>
-MEM_PER_CORE = int(config.get("MEM_PER_CORE", 1800))
+MEM_PER_CORE = int(config.get("MEM_PER_CORE", 3700))
 
 TRIMMOMATIC_CORES = int(config.get("TRIMMOMATIC_CORES", 8))
-BWA_CORES = int(config.get("BWA_CORES", 16))
+BWA_CORES = int(config.get("BWA_CORES", 64))
 BAM_SORT_CORES = int(config.get("BAM_SORT_CORES", 8))
 CRAM_CORES = int(config.get("CRAM_CORES", 4))
-INFER_FRAG_CORES = int(config.get("INFER_FRAG_CORES", 8))
+INFER_FRAG_CORES = int(config.get("INFER_FRAG_CORES", 32))
 INFER_FRAG_SORTBED_CORES = max(1, int(config.get("INFER_FRAG_SORTBED_CORES", INFER_FRAG_CORES - 3)))
 
 WALL_TIME_MAX = int(config.get("WALL_TIME_MAX", 2880))
-WALL_TIME_MIN = int(config.get("WALL_TIME_MIN", 300))
+WALL_TIME_MIN = int(config.get("WALL_TIME_MIN", 360))
 
 WITH_CIGAR = bool(config.get("WITH_CIGAR", 0))
 WITH_READ_ID =  bool(config.get("WITH_READ_ID", 0))
@@ -40,6 +40,7 @@ def get_ref_genome(ref_genome):
     ref_map = {
         "hg19": [os.path.normpath(v) for v in expand(f"data/hg19/human_g1k_v37.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".pac", ".sa"])],
         "hg38": [os.path.normpath(v) for v in expand(f"data/hg38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".pac", ".sa"])],
+        "chm13": [os.path.normpath(v) for v in expand(f"data/chm13/chm13v2.0.fa.gz{{ext}}", ext=["", ".amb", ".ann", ".bwt", ".fai", ".pac", ".sa"])],
     }
     return ref_map[ref_genome]
 
@@ -48,6 +49,7 @@ def get_ref_genome_sizes(ref_genome):
     ref_map = {
         "hg19": os.path.normpath(f"data/hg19/human_g1k_v37.chrom.sizes"),
         "hg38": os.path.normpath(f"data/hg38/GCA_000001405.15_GRCh38_no_alt_analysis_set"),
+        "chm13": os.path.normpath(f"data/chm13/chm13v2.0.chrom.sizes"),
     }
     return ref_map[ref_genome]
 
@@ -56,11 +58,12 @@ def get_ref_genome_sizes(ref_genome):
 rule trimmomatic:
     input: 
         fastq=expand("fastq/{{sample}}.{read_name}.fastq.gz", read_name=["R1", "R2"]),
-        adapter="raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa",
-       # adapter="supplementary/TruSeq3-PE-2.fa" # Download from https://raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa"
+        # adapter="raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa",
+        adapter="supplementary/TruSeq3-PE-2.fa" # Download from https://raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-PE-2.fa" #TODO: make this install automatically somehow
     output:
         trim=expand("trimmomatic/{{sample}}.R{rg}.{pairing}.fastq.gz", rg=[1, 2], pairing=["paired", "unpaired"]),
     log: "trimmomatic/{sample}.trimmomatic.summary.txt",
+    conda: "envs/trimmomatic.yaml",
     params:
         slurm_job_label=lambda wildcards: f"trimmomatic.{wildcards.sample}",
         trimmer=lambda wildcards, input: config.get("TRIMMER", TRIMMOMATIC_HEAD + f" ILLUMINACLIP:{input.adapter}:2:30:10:2:true TRAILING:5 AVGQUAL:20 MINLEN:36 ") + TRIMMOMATIC_EXTRA,
@@ -98,8 +101,9 @@ rule bwa_raw:
         log="bam/{sample}.{ref_genome}.samblaster.log",
     params:
         slurm_job_label=lambda wildcards: f"bwa_raw.{wildcards.sample}.{wildcards.ref_genome}",
-        extra=lambda wildcards: f"-I 167,1000,0,1000 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
+        extra=lambda wildcards: f"-I 167,1000,1000,0 -R '@RG\\tID:{config.get('BWA_RG_ID', wildcards.sample)}\\tSM:{config.get('BWA_SM_ID', wildcards.sample)}\\tPL:{config.get('BWA_PL', 'ILLUMINA')}'"
     threads: lambda wildcards, attempt: int(BWA_CORES * (0.5 + 0.5 * attempt))
+    conda: "envs/bwa.yaml",
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -125,6 +129,7 @@ rule bam_sort:
         slurm_job_label=lambda wildcards: f"bam_sort.{wildcards.sample}.{wildcards.ref_genome}",
         sort_mem=lambda wildcards: int(MEM_PER_CORE * 0.8),
     threads: lambda wildcards, attempt: int(BAM_SORT_CORES * (0.5 + 0.5 * attempt))
+    conda: "envs/samtools.yaml",
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -152,6 +157,7 @@ rule cram_archive:
     params:
         slurm_job_label=lambda wildcards: f"cram_archive.{wildcards.sample}.{wildcards.ref_genome}",
     threads: lambda wildcards, attempt: int(CRAM_CORES * (0.5 + 0.5 * attempt))
+    conda: "envs/samtools.yaml",
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -186,6 +192,7 @@ rule infer_fragments:
         remove_read_id_cmd=lambda wildcards: "" if WITH_READ_ID else "awk -F'\\t' -v OFS='\\t' '{$4=\".\";print}' | ",
         head_print=lambda wildcards: '"#chrom", "start", "end", "name", "mapq", "strand"',
         head_print2=lambda wildcards: ', "cigar1", "cigar2"' if WITH_CIGAR else "",
+    conda: "envs/infer_fragments.yaml",
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,

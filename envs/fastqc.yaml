@@ -1,6 +1,7 @@
+name: fastqc
 channels:
   - bioconda
   - conda-forge
+  - defaults
 dependencies:
-  - samtools ==1.10
-  - gatk4 ==4.1.9.0
+  - fastqc ==0.11.9

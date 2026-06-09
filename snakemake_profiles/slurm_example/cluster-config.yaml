@@ -1,0 +1,5 @@
+__default__:
+    account: # account
+    partition: # genomics
+    output: # log.log
+    nodes: 1
